@@ -1,167 +1,223 @@
-// WH15P3R Signaling Server for Deno Deploy
-// Serverless WebSocket signaling for WebRTC P2P connections
-// Zero logging, ephemeral sessions, no persistence
+# WH15P3R Signaling Server
 
-const sessions = new Map();
+Ephemeral WebSocket signaling server for WH15P3R post-quantum encrypted P2P chat.
 
-// Cleanup old sessions every 5 minutes
-setInterval(() => {
-const now = Date.now();
-for (const [code, session] of sessions.entries()) {
-if (!session.lastActivity || now - session.lastActivity > 10 * 60 * 1000) {
-sessions.delete(code);
-}
-}
-}, 5 * 60 * 1000);
+## Critical Security Properties
 
-Deno.serve({ port: 8000 }, (req) => {
-// Health check endpoint
-if (req.url.endsWith(”/health”)) {
-return new Response(
-JSON.stringify({
-status: “ok”,
-sessions: sessions.size,
-uptime: “serverless”
-}),
-{
-status: 200,
-headers: { “Content-Type”: “application/json” }
-}
-);
-}
+### ⚠️ ZERO DATA PERSISTENCE
 
-// WebSocket upgrade
-if (req.headers.get(“upgrade”) === “websocket”) {
-const { socket, response } = Deno.upgradeWebSocket(req);
+**This server intentionally stores NOTHING:**
+
+- ❌ No database
+- ❌ No file writes
+- ❌ No logs of message content
+- ❌ No session history
+- ❌ No user data
+- ❌ No encryption keys
+
+**All data is ephemeral in-memory only:**
+
+- Session data exists only during active connections
+- Destroyed when connections close
+- Automatically cleaned up after 10 minutes of inactivity
+- Server restart = complete memory wipe
+
+### What This Server Does
+
+**Purpose:** Facilitate WebRTC peer-to-peer connection setup ONLY
+
+**Sees:**
+
+- Random session codes (e.g., “A3F7B9E2C1D4”)
+- WebSocket connection metadata
+- WebRTC signaling messages (SDP offer/answer/ICE candidates)
+
+**Does NOT See:**
+
+- Message content (transmitted P2P, not through server)
+- Encryption keys (generated client-side)
+- User identities (no authentication)
+- Chat history (no storage)
+
+**After P2P connection established:** Server is no longer involved in communication.
+
+## Technical Implementation
+
+**Runtime:** Deno Deploy (Serverless)
+
+**Architecture:**
 
 ```
-let currentSessionCode = null;
-
-socket.onopen = () => {
-  // Connection established
-};
-
-socket.onmessage = (event) => {
-  try {
-    const data = JSON.parse(event.data);
-    
-    if (data.type === "join") {
-      handleJoin(socket, data);
-      currentSessionCode = data.sessionCode;
-    } else if (data.type === "offer" || data.type === "answer" || data.type === "ice-candidate") {
-      relay(data);
-    }
-  } catch (e) {
-    // Silently ignore malformed messages
-    console.error("Parse error:", e);
-  }
-};
-
-socket.onclose = () => {
-  if (currentSessionCode && sessions.has(currentSessionCode)) {
-    const session = sessions.get(currentSessionCode);
-    
-    // Remove this connection
-    if (session.initiator === socket) {
-      session.initiator = null;
-    } else if (session.joiner === socket) {
-      session.joiner = null;
-    }
-    
-    // Clean up empty sessions
-    if (!session.initiator && !session.joiner) {
-      sessions.delete(currentSessionCode);
-    }
-  }
-};
-
-socket.onerror = (error) => {
-  console.error("WebSocket error:", error);
-};
-
-return response;
+Client A ──┐
+           ├──→ Signaling Server (WebSocket relay)
+Client B ──┘         ↓
+                Facilitates WebRTC handshake
+                     ↓
+Client A ←────────────────────────────────→ Client B
+              Direct P2P Connection
+         (Server no longer involved)
 ```
 
-}
+**Data Flow:**
 
-// Root endpoint
-return new Response(
-“WH15P3R Signaling Server - Running on Deno Deploy\nNo logging • Ephemeral sessions • Post-quantum ready”,
+1. Clients connect via WebSocket
+1. Exchange WebRTC signaling messages through server
+1. Establish direct P2P connection
+1. Server connection closes
+1. All server-side data destroyed
+
+## Permissions
+
+**Deno Deploy is configured with minimal permissions:**
+
+```json
 {
-status: 200,
-headers: {
-“Content-Type”: “text/plain”,
-“Access-Control-Allow-Origin”: “*”
+  "allow-net": true,     // Required for WebSocket server
+  "allow-read": false,   // NO file read access
+  "allow-write": false,  // NO file write access
+  "allow-env": false,    // NO environment variable access
+  "allow-run": false     // NO subprocess execution
 }
-}
-);
-});
+```
 
-function handleJoin(socket, data) {
-const { sessionCode, isInitiator } = data;
+**This prevents:**
 
-if (!sessions.has(sessionCode)) {
-sessions.set(sessionCode, {
-initiator: null,
-joiner: null,
-lastActivity: Date.now()
-});
-}
+- Writing logs to disk
+- Reading sensitive files
+- Running external processes
+- Accessing environment variables
 
-const session = sessions.get(sessionCode);
-session.lastActivity = Date.now();
+## Deployment
 
-if (isInitiator) {
-session.initiator = socket;
-} else {
-session.joiner = socket;
-}
+**Hosted on:** Deno Deploy (serverless)
 
-// If both peers are present, signal ready
-if (session.initiator && session.joiner) {
-safeSend(session.initiator, JSON.stringify({ type: “ready” }));
-safeSend(session.joiner, JSON.stringify({ type: “ready” }));
-}
-}
+**Deployment method:** Automatic from GitHub
 
-function relay(data) {
-const { sessionCode, type } = data;
+**Update procedure:**
 
-if (!sessions.has(sessionCode)) {
-return;
-}
+1. Push changes to GitHub
+1. Deno Deploy automatically redeploys
+1. Zero downtime updates
 
-const session = sessions.get(sessionCode);
-session.lastActivity = Date.now();
-const message = JSON.stringify(data);
+## Monitoring
 
-// Relay to the other peer
-if (session.initiator && session.joiner) {
-if (type === “offer” || type === “ice-candidate”) {
-// From initiator to joiner
-safeSend(session.joiner, message);
-} else if (type === “answer”) {
-// From joiner to initiator
-safeSend(session.initiator, message);
-} else if (type === “ice-candidate”) {
-// ICE candidates can go both ways
-// Determine which direction based on which socket it didn’t come from
-// This is a simplified relay - in practice, the client handles direction
-safeSend(session.initiator, message);
-safeSend(session.joiner, message);
-}
-}
-}
+**Health check endpoint:** `/health`
 
-function safeSend(socket, message) {
-try {
-if (socket && socket.readyState === WebSocket.OPEN) {
-socket.send(message);
-}
-} catch (e) {
-// Socket might have closed, ignore
-}
-}
+Returns:
 
-console.log(“WH15P3R Signaling Server started on Deno Deploy”);
-console.log(“No logging enabled - operating in secure mode”);
+```json
+{
+  "status": "ok",
+  "sessions": 0
+}
+```
+
+**Session count** indicates currently active signaling sessions (not message count).
+
+**No other metrics collected** - intentional privacy design.
+
+## Code Audit
+
+**Total lines of code:** ~100 lines
+
+**Dependencies:** Zero (pure Deno)
+
+**Audit recommendation:** This code is simple enough to audit in 10 minutes.
+
+**Security principle:** Simple code = fewer vulnerabilities
+
+## Privacy Guarantees
+
+### What can be observed (metadata):
+
+By operator (Deno Deploy):
+
+- Number of concurrent connections
+- Connection timestamps
+- Session codes (random strings with no meaning)
+
+By network observer:
+
+- Encrypted WebSocket traffic (TLS 1.3)
+- Cannot see content (encrypted)
+- Can see timing and connection patterns
+
+### What CANNOT be observed:
+
+- Message content (P2P encrypted)
+- Encryption keys (never touch this server)
+- User identities (no authentication)
+- Chat history (no storage)
+- Message recipients (after P2P established)
+
+### Threat Model
+
+**This server protects against:**
+
+- ✅ Server seizure (nothing to seize)
+- ✅ Data breach (no data to breach)
+- ✅ Retroactive surveillance (nothing stored)
+
+**This server does NOT protect against:**
+
+- ❌ Real-time network monitoring during handshake
+- ❌ Traffic analysis (timing, frequency patterns)
+- ❌ Compromised endpoints
+- ❌ Man-in-the-middle during signaling (mitigated by out-of-band verification)
+
+## Compliance
+
+**GDPR:** No personal data collected or stored
+
+**Data retention:** Zero (ephemeral only)
+
+**Right to erasure:** N/A (nothing to erase)
+
+**Data portability:** N/A (nothing to export)
+
+**Legal requests:** Nothing to provide
+
+## Operational Notes
+
+**Scaling:** Automatic (serverless)
+
+**Availability:** Deno Deploy SLA (~99.9%)
+
+**Maintenance:** Zero (automatic updates)
+
+**Costs:** Free tier (generous limits)
+
+**Backup:** Not needed (stateless)
+
+## Security Incident Response
+
+**If server compromised:**
+
+1. Attacker gains: Active session codes (random strings)
+1. Attacker does NOT gain: Message content, encryption keys, chat history
+1. Impact: Minimal (all data ephemeral)
+1. Response: Redeploy, rotate if needed
+
+**No persistent data = minimal breach impact**
+
+## Related Repositories
+
+**Client Application:** [whisper-chat](https://github.com/ymgholdings/whisper-chat)
+
+**Documentation:** See main repo
+
+## License
+
+Open source - use responsibly
+
+## Contact
+
+For security issues, please report responsibly.
+
+-----
+
+**Last Updated:** November 2025
+
+**Version:** 1.0.0
+
+**Status:** Production
