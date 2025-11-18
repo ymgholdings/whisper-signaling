@@ -1,0 +1,9 @@
+{
+  "tasks": {
+    "start": "deno run --allow-net main.js",
+    "build": "echo 'No build needed - pure Deno'"
+  },
+  "compilerOptions": {
+    "strict": true
+  }
+}
