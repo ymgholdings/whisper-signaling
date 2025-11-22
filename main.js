@@ -16,22 +16,22 @@ sessions.delete(code);
 
 Deno.serve({ port: 8000 }, (req) => {
 // Health check endpoint
-if (req.url.endsWith(”/health”)) {
+if (req.url.endsWith("/health")) {
 return new Response(
 JSON.stringify({
-status: “ok”,
+status: "ok",
 sessions: sessions.size,
-uptime: “serverless”
+uptime: "serverless"
 }),
 {
 status: 200,
-headers: { “Content-Type”: “application/json” }
+headers: { "Content-Type": "application/json" }
 }
 );
 }
 
 // WebSocket upgrade
-if (req.headers.get(“upgrade”) === “websocket”) {
+if (req.headers.get("upgrade") === "websocket") {
 const { socket, response } = Deno.upgradeWebSocket(req);
 
 ```
@@ -86,12 +86,12 @@ return response;
 
 // Root endpoint
 return new Response(
-“WH15P3R Signaling Server - Running on Deno Deploy\nNo logging • Ephemeral sessions • Post-quantum ready”,
+"WH15P3R Signaling Server - Running on Deno Deploy\nNo logging • Ephemeral sessions • Post-quantum ready",
 {
 status: 200,
 headers: {
-“Content-Type”: “text/plain”,
-“Access-Control-Allow-Origin”: “*”
+"Content-Type": "text/plain",
+"Access-Control-Allow-Origin": "*"
 }
 }
 );
@@ -119,8 +119,8 @@ session.joiner = socket;
 
 // If both peers are present, signal ready
 if (session.initiator && session.joiner) {
-safeSend(session.initiator, JSON.stringify({ type: “ready” }));
-safeSend(session.joiner, JSON.stringify({ type: “ready” }));
+safeSend(session.initiator, JSON.stringify({ type: "ready" }));
+safeSend(session.joiner, JSON.stringify({ type: "ready" }));
 }
 }
 
@@ -159,5 +159,5 @@ socket.send(message);
 }
 }
 
-console.log(“WH15P3R Signaling Server started on Deno Deploy”);
-console.log(“No logging enabled - operating in secure mode”);
+console.log("WH15P3R Signaling Server started on Deno Deploy");
+console.log("No logging enabled - operating in secure mode");
