@@ -34,7 +34,6 @@ headers: { “Content-Type”: “application/json” }
 if (req.headers.get(“upgrade”) === “websocket”) {
 const { socket, response } = Deno.upgradeWebSocket(req);
 
-```
 let currentSessionCode = null;
 
 socket.onopen = () => {
@@ -80,8 +79,6 @@ socket.onerror = (error) => {
 };
 
 return response;
-```
-
 }
 
 // Root endpoint
@@ -161,3 +158,5 @@ socket.send(message);
 
 console.log(“WH15P3R Signaling Server started on Deno Deploy”);
 console.log(“No logging enabled - operating in secure mode”);
+Shell cwd was reset to /home/user/whisper-chat
+Fix build error - remove markdown markers and ensure proper quotes
