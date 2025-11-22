@@ -160,6 +160,107 @@ socket.send(message);
 }
 
 console.log(“WH15P3R Signaling Server started on Deno Deploy”);
+console.log(“No logging enabled - operating in secure mode”);    const session = sessions.get(currentSessionCode);
+    
+    // Remove this connection
+    if (session.initiator === socket) {
+      session.initiator = null;
+    } else if (session.joiner === socket) {
+      session.joiner = null;
+    }
+    
+    // Clean up empty sessions
+    if (!session.initiator && !session.joiner) {
+      sessions.delete(currentSessionCode);
+    }
+  }
+};
+
+socket.onerror = (error) => {
+  console.error("WebSocket error:", error);
+};
+
+return response;
+```
+
+}
+
+// Root endpoint
+return new Response(
+“WH15P3R Signaling Server - Running on Deno Deploy\nNo logging • Ephemeral sessions • Post-quantum ready”,
+{
+status: 200,
+headers: {
+“Content-Type”: “text/plain”,
+“Access-Control-Allow-Origin”: “*”
+}
+}
+);
+});
+
+function handleJoin(socket, data) {
+const { sessionCode, isInitiator } = data;
+
+if (!sessions.has(sessionCode)) {
+sessions.set(sessionCode, {
+initiator: null,
+joiner: null,
+lastActivity: Date.now()
+});
+}
+
+const session = sessions.get(sessionCode);
+session.lastActivity = Date.now();
+
+if (isInitiator) {
+session.initiator = socket;
+} else {
+session.joiner = socket;
+}
+
+// If both peers are present, signal ready
+if (session.initiator && session.joiner) {
+safeSend(session.initiator, JSON.stringify({ type: “ready” }));
+safeSend(session.joiner, JSON.stringify({ type: “ready” }));
+}
+}
+
+function relay(senderSocket, data) {
+const { sessionCode } = data;
+
+if (!sessions.has(sessionCode)) {
+return;
+}
+
+const session = sessions.get(sessionCode);
+session.lastActivity = Date.now();
+const message = JSON.stringify(data);
+
+// Determine the recipient (the peer that is NOT the sender)
+let recipient = null;
+if (session.initiator === senderSocket) {
+recipient = session.joiner;
+} else if (session.joiner === senderSocket) {
+recipient = session.initiator;
+}
+
+// Relay to the other peer
+if (recipient) {
+safeSend(recipient, message);
+}
+}
+
+function safeSend(socket, message) {
+try {
+if (socket && socket.readyState === WebSocket.OPEN) {
+socket.send(message);
+}
+} catch (e) {
+// Socket might have closed, ignore
+}
+}
+
+console.log(“WH15P3R Signaling Server started on Deno Deploy”);
 console.log(“No logging enabled - operating in secure mode”);```
 let currentSessionCode = null;
 
